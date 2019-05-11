@@ -21,6 +21,7 @@ from collections import namedtuple
 import torch
 import torch.nn.functional as F
 from torch import nn
+from apex.parallel import SyncBatchNorm
 
 from maskrcnn_benchmark.layers import FrozenBatchNorm2d
 from maskrcnn_benchmark.layers import Conv2d
@@ -428,14 +429,48 @@ class StemWithGN(BaseStem):
         super(StemWithGN, self).__init__(cfg, norm_func=group_norm)
 
 
+class BottleneckWithSyncBN(Bottleneck):
+    def __init__(
+        self,
+        in_channels,
+        bottleneck_channels,
+        out_channels,
+        num_groups=1,
+        stride_in_1x1=True,
+        stride=1,
+        dilation=1,
+        dcn_config={}
+    ):
+        super(BottleneckWithSyncBN, self).__init__(
+            in_channels=in_channels,
+            bottleneck_channels=bottleneck_channels,
+            out_channels=out_channels,
+            num_groups=num_groups,
+            stride_in_1x1=stride_in_1x1,
+            stride=stride,
+            dilation=dilation,
+            norm_func=SyncBatchNorm,
+            dcn_config=dcn_config
+        )
+
+
+class StemWithSyncBN(BaseStem):
+    def __init__(self, cfg):
+        super(StemWithSyncBN, self).__init__(
+            cfg, norm_func=SyncBatchNorm
+        )
+
+
 _TRANSFORMATION_MODULES = Registry({
     "BottleneckWithFixedBatchNorm": BottleneckWithFixedBatchNorm,
     "BottleneckWithGN": BottleneckWithGN,
+    "BottleneckWithSyncBN": BottleneckWithSyncBN,
 })
 
 _STEM_MODULES = Registry({
     "StemWithFixedBatchNorm": StemWithFixedBatchNorm,
     "StemWithGN": StemWithGN,
+    "StemWithSyncBN": StemWithSyncBN,
 })
 
 _STAGE_SPECS = Registry({
