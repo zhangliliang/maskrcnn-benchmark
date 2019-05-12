@@ -36,7 +36,7 @@ def build_resnet_fpn_backbone(cfg):
         ],
         out_channels=out_channels,
         conv_block=conv_with_kaiming_uniform(
-            cfg.MODEL.FPN.USE_GN, cfg.MODEL.FPN.USE_RELU
+            cfg.MODEL.FPN.USE_GN, cfg.MODEL.FPN.USE_RELU, cfg.MODEL.FPN.USE_SYNCBN
         ),
         top_blocks=fpn_module.LastLevelMaxPool(),
     )
@@ -62,7 +62,7 @@ def build_resnet_fpn_p3p7_backbone(cfg):
         ],
         out_channels=out_channels,
         conv_block=conv_with_kaiming_uniform(
-            cfg.MODEL.FPN.USE_GN, cfg.MODEL.FPN.USE_RELU
+            cfg.MODEL.FPN.USE_GN, cfg.MODEL.FPN.USE_RELU, cfg.MODEL.FPN.USE_SYNCBN
         ),
         top_blocks=fpn_module.LastLevelP6P7(in_channels_p6p7, out_channels),
     )

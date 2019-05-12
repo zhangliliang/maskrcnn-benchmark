@@ -34,6 +34,17 @@ MODEL:
     POOLER_SAMPLING_RATIO: 2
     FEATURE_EXTRACTOR: "FPN2MLPFeatureExtractor"
     PREDICTOR: "FPNPredictor"
+  ROI_MASK_HEAD:
+    USE_SYNCBN: True # use SyncBN for mask head
+    POOLER_SCALES: (0.25, 0.125, 0.0625, 0.03125)
+    CONV_LAYERS: (256, 256, 256, 256)
+    FEATURE_EXTRACTOR: "MaskRCNNFPNFeatureExtractor"
+    PREDICTOR: "MaskRCNNC4Predictor"
+    POOLER_RESOLUTION: 14
+    POOLER_SAMPLING_RATIO: 2
+    RESOLUTION: 28
+    SHARE_BOX_FEATURE_EXTRACTOR: False
+  MASK_ON: True
 DATASETS:
   TRAIN: ("coco_2014_train", "coco_2014_valminusminival")
   TEST: ("coco_2014_minival",)

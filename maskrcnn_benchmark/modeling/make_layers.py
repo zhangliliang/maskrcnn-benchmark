@@ -6,6 +6,9 @@ Miscellaneous utility functions
 import torch
 from torch import nn
 from torch.nn import functional as F
+
+from apex.parallel import SyncBatchNorm
+
 from maskrcnn_benchmark.config import cfg
 from maskrcnn_benchmark.layers import Conv2d
 from maskrcnn_benchmark.modeling.poolers import Pooler
@@ -34,30 +37,31 @@ def group_norm(out_channels, affine=True, divisor=1):
     num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
     eps = cfg.MODEL.GROUP_NORM.EPSILON # default: 1e-5
     return torch.nn.GroupNorm(
-        get_group_gn(out_channels, dim_per_gp, num_groups), 
-        out_channels, 
-        eps, 
+        get_group_gn(out_channels, dim_per_gp, num_groups),
+        out_channels,
+        eps,
         affine
     )
 
 
 def make_conv3x3(
-    in_channels, 
-    out_channels, 
-    dilation=1, 
-    stride=1, 
+    in_channels,
+    out_channels,
+    dilation=1,
+    stride=1,
     use_gn=False,
+    use_syncbn=False,
     use_relu=False,
     kaiming_init=True
 ):
     conv = Conv2d(
-        in_channels, 
-        out_channels, 
-        kernel_size=3, 
-        stride=stride, 
-        padding=dilation, 
-        dilation=dilation, 
-        bias=False if use_gn else True
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=stride,
+        padding=dilation,
+        dilation=dilation,
+        bias=False if use_gn or use_syncbn else True
     )
     if kaiming_init:
         nn.init.kaiming_normal_(
@@ -65,19 +69,21 @@ def make_conv3x3(
         )
     else:
         torch.nn.init.normal_(conv.weight, std=0.01)
-    if not use_gn:
+    if not use_gn and not use_syncbn:
         nn.init.constant_(conv.bias, 0)
     module = [conv,]
     if use_gn:
         module.append(group_norm(out_channels))
     if use_relu:
         module.append(nn.ReLU(inplace=True))
+    if use_syncbn:
+        module.append(SyncBatchNorm(out_channels))
     if len(module) > 1:
         return nn.Sequential(*module)
     return conv
 
 
-def make_fc(dim_in, hidden_dim, use_gn=False):
+def make_fc(dim_in, hidden_dim, use_gn=False, use_syncbn=False):
     '''
         Caffe2 implementation uses XavierFill, which in fact
         corresponds to kaiming_uniform_ in PyTorch
@@ -86,35 +92,41 @@ def make_fc(dim_in, hidden_dim, use_gn=False):
         fc = nn.Linear(dim_in, hidden_dim, bias=False)
         nn.init.kaiming_uniform_(fc.weight, a=1)
         return nn.Sequential(fc, group_norm(hidden_dim))
+    if use_syncbn:
+        fc = nn.Linear(dim_in, hidden_dim, bias=False)
+        nn.init.kaiming_uniform_(fc.weight, a=1)
+        return nn.Sequential(fc, SyncBatchNorm(hidden_dim))
     fc = nn.Linear(dim_in, hidden_dim)
     nn.init.kaiming_uniform_(fc.weight, a=1)
     nn.init.constant_(fc.bias, 0)
     return fc
 
 
-def conv_with_kaiming_uniform(use_gn=False, use_relu=False):
+def conv_with_kaiming_uniform(use_gn=False, use_relu=False, use_syncbn=False):
     def make_conv(
         in_channels, out_channels, kernel_size, stride=1, dilation=1
     ):
         conv = Conv2d(
-            in_channels, 
-            out_channels, 
-            kernel_size=kernel_size, 
-            stride=stride, 
-            padding=dilation * (kernel_size - 1) // 2, 
-            dilation=dilation, 
-            bias=False if use_gn else True
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=dilation * (kernel_size - 1) // 2,
+            dilation=dilation,
+            bias=False if use_gn or use_syncbn else True
         )
         # Caffe2 implementation uses XavierFill, which in fact
         # corresponds to kaiming_uniform_ in PyTorch
         nn.init.kaiming_uniform_(conv.weight, a=1)
-        if not use_gn:
+        if not use_gn and not use_syncbn:
             nn.init.constant_(conv.bias, 0)
         module = [conv,]
         if use_gn:
             module.append(group_norm(out_channels))
         if use_relu:
             module.append(nn.ReLU(inplace=True))
+        if use_syncbn:
+            module.append(SyncBatchNorm(out_channels))
         if len(module) > 1:
             return nn.Sequential(*module)
         return conv

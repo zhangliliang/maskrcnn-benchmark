@@ -3,6 +3,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from apex.parallel import SyncBatchNorm
+
 from maskrcnn_benchmark.modeling import registry
 from maskrcnn_benchmark.modeling.backbone import resnet
 from maskrcnn_benchmark.modeling.poolers import Pooler
@@ -66,9 +68,10 @@ class FPN2MLPFeatureExtractor(nn.Module):
         input_size = in_channels * resolution ** 2
         representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
         use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        use_synbn = cfg.MODEL.ROI_BOX_HEAD.USE_SYNCBN
         self.pooler = pooler
-        self.fc6 = make_fc(input_size, representation_size, use_gn)
-        self.fc7 = make_fc(representation_size, representation_size, use_gn)
+        self.fc6 = make_fc(input_size, representation_size, use_gn, use_synbn)
+        self.fc7 = make_fc(representation_size, representation_size, use_gn, use_synbn)
         self.out_channels = representation_size
 
     def forward(self, x, proposals):
@@ -101,6 +104,7 @@ class FPNXconv1fcFeatureExtractor(nn.Module):
         self.pooler = pooler
 
         use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        use_syncbn = cfg.MODEL.ROI_BOX_HEAD.USE_SYNCBN
         conv_head_dim = cfg.MODEL.ROI_BOX_HEAD.CONV_HEAD_DIM
         num_stacked_convs = cfg.MODEL.ROI_BOX_HEAD.NUM_STACKED_CONVS
         dilation = cfg.MODEL.ROI_BOX_HEAD.DILATION
@@ -115,12 +119,14 @@ class FPNXconv1fcFeatureExtractor(nn.Module):
                     stride=1,
                     padding=dilation,
                     dilation=dilation,
-                    bias=False if use_gn else True
+                    bias=False if use_gn or use_syncbn else True
                 )
             )
             in_channels = conv_head_dim
             if use_gn:
                 xconvs.append(group_norm(in_channels))
+            if use_syncbn:
+                xconvs.append(SyncBatchNorm(in_channels))
             xconvs.append(nn.ReLU(inplace=True))
 
         self.add_module("xconvs", nn.Sequential(*xconvs))
@@ -128,12 +134,12 @@ class FPNXconv1fcFeatureExtractor(nn.Module):
             for l in modules.modules():
                 if isinstance(l, nn.Conv2d):
                     torch.nn.init.normal_(l.weight, std=0.01)
-                    if not use_gn:
+                    if not use_gn and not use_syncbn:
                         torch.nn.init.constant_(l.bias, 0)
 
         input_size = conv_head_dim * resolution ** 2
         representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
-        self.fc6 = make_fc(input_size, representation_size, use_gn=False)
+        self.fc6 = make_fc(input_size, representation_size, use_gn=False, use_syncbn=False) # why set use_gn=False here?
         self.out_channels = representation_size
 
     def forward(self, x, proposals):
